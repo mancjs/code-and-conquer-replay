@@ -1,0 +1,84 @@
+#!/usr/bin/env node
+
+const fs = require('fs');
+const path = require('path');
+
+const processCommandLine = () => {
+  const usage = () => {
+    console.log('usage: build-archive <path to snapshot directory>');
+    process.exit(1);
+  };
+
+  const error = msg => {
+    console.error(msg);
+    process.exit(1);
+  };
+
+  const args = {
+    snapshotPath: process.argv[2],
+    outputFile: 'archive.js'
+  };
+
+  if (!args.snapshotPath) {
+    return usage();
+  }
+
+  try {
+    fs.statSync(args.snapshotPath);
+  } catch (err) {
+    return error('snapshot directory not found');
+  }
+
+  return args;
+};
+
+const processSnapshotFile = (snapshotPath, file) => {
+  const snapshot = JSON.parse(fs.readFileSync(path.join(snapshotPath, file)));
+  const parts = file.match(/-(\d{2})(\d{2})(\d{2})\.json$/);
+
+  return {
+    grid: snapshot.grid.cells,
+    time: [parts[1], parts[2]].join(':')
+  };
+};
+
+const getTeamsFromSnapshotFile = (snapshotPath, file) => {
+  const snapshot = JSON.parse(fs.readFileSync(path.join(snapshotPath, file)));
+
+  return snapshot.teams.map(team => {
+    return {
+      name: team.name,
+      role: team.role,
+      colour: team.colour,
+      gravatar: team.gravatar
+    };
+  });
+};
+
+const createArchive = args => {
+  const isSnapshotFile = name => name.match(/-\d{6}\.json$/);
+  const snapshotFileNames = fs.readdirSync(args.snapshotPath).filter(isSnapshotFile);
+
+  const teams = getTeamsFromSnapshotFile(args.snapshotPath, snapshotFileNames[snapshotFileNames.length - 1]);
+  const snapshots = snapshotFileNames.map(processSnapshotFile.bind(null, args.snapshotPath));
+
+  return {
+    teamCount: teams.length,
+    snapshotCount: snapshots.length,
+    teams: JSON.stringify(teams),
+    snapshots: JSON.stringify(snapshots)
+  };
+};
+
+const writeArchiveFile = (filename, archive) => {
+  const data = `var teams = ${archive.teams}; var snapshots = ${archive.snapshots};`;
+  fs.writeFileSync(`${__dirname}/${filename}`, data);
+  return data.length;
+};
+
+const args = processCommandLine();
+const archive = createArchive(args);
+const written = writeArchiveFile(args.outputFile, archive);
+
+console.log(`file: ${args.outputFile}, size: ${Math.round(written/1024)} KiB`);
+console.log(`snapshots: ${archive.snapshotCount}, teams: ${archive.teamCount}`);
